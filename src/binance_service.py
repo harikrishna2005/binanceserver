@@ -1,61 +1,37 @@
 # from object_manager import server_objects
 import asyncio
+import json
 import time
 
 from aiohttp import ClientConnectorDNSError
 from binance import AsyncClient, BinanceSocketManager
 
 
-api_bin_key ="Rfm2PMTwDYlTsqWXrz387"
-api_bin_secret = "xoyngETgiAo49CvVvEmRsvqDLw07y"
-
-class HariBinanceSocketManager:
-    _instances = {}
-    def __init__(self, client, symbol: str):
-        self.symbol = symbol
-        # self.bsm =
-        self.kline_socket = None
-        self.depth_socket = None
-
-    @classmethod
-    async def create_socket_manager_async(cls):
-
-        pass
+api_bin_key ="abcdef"
+api_bin_secret = "abc"
 
 class UserAccount:
-    def __init__(self, user_socket):
-        self.current_status= "STOPPED"
-        self._start_indicator:bool = False
-        self._user_socket = user_socket
-        self._context_manager = None
+    """
+    { 'e' : 'executionReport'    ====>   order details
+     'e' : 'outboundAccountPosition'   ===>
+     'e': 'error',
+            type - BinanceWebsocketClosed
+    """
+    def __init__(self, bsm:BinanceSocketManager):
+        self._started:bool = False
+        self._bsm = bsm
+        self._user_socket = self._bsm.user_socket()
         self._manual_context= None
+        self._task = None
 
 
 
     async def start_updates_async(self):
-        if not self.current_status=="STARTED":
-            self.current_status="STARTED"
-            self._start_indicator = True
+        if not self._started:
+            self._started = True
             self._manual_context = await self._user_socket.__aenter__()
-            updates_task = asyncio.create_task(self._receive_updates_async())
-
-            print(f"Before Awaiting TASK")
-            print(f"Going to sleep for 60 seconds")
-            # await asyncio.sleep(60)
-            # asyncio.create_task(asyncio.to_thread(self._automatic_stopping,60))
-            await updates_task
-            self._start_indicator = False
-
-            # await updates_task
-            print(f"After Awaiting TASK")
-            # num=1
-            # async with self._user_socket  as tscm:
-            #     while num <= 100:
-            #         print(f"*======ENTRY :{num}========")
-            #         res = await tscm.recv()
-            #         print(res)
-            #         await asyncio.sleep(1)
-            #         num = num + 1
+            self._task = asyncio.create_task(self._receive_updates_async())
+            print("Immediatly going out of  start updes. But continue receiving the updates")
 
 
 
@@ -63,28 +39,50 @@ class UserAccount:
     async def _receive_updates_async(self):
         num = 1
 
-        while self._start_indicator:
+        while self._started:
             print(f"*======ENTRY :{num}========")
             res = await self._manual_context.recv()
-            print(res)
-            # await asyncio.sleep(1)
-            num = num + 1
 
-    def _automatic_stopping(self, seconds):
-        time.sleep(seconds)
-        self._start_indicator=False
+            print(f"Hello - {res}")
+            parsed_message = json.loads(res)
+            if parsed_message.get("e") == "error":
+                if parsed_message.get("type") == "BinanceWebsocketClosed":
+                    await asyncio.sleep(5)
+                    self._user_socket = self._bsm.user_socket()
+
+
+
+
+            await asyncio.sleep(1)
+            num = num + 1
 
 
     async def stop_updates_async(self):
-        if not self.current_status=="STOPPED":
-            self.current_status="STOPPED"
-            self._start_indicator=False
-            await self._manual_context.__aexit__(None, None, None)
+        if self._started:
+            self._started=False
+            # await self._manual_context.__aexit__(None, None, None)
+            # if self._manual_context:
+            #     await self._manual_context.close()
 
+            if self._manual_context:
+                try:
+                    # Explicitly close the WebSocket connection
+                    await self._manual_context.close()
+                except AttributeError:
+                    # If `close` is not implemented, ignore the error
+                    print("The WebSocket context does not support explicit close.")
+                except Exception as e:
+                    print(f"Error while closing WebSocket: {e}")
+                finally:
+                    # Ensure the context manager exits cleanly
+                    await self._manual_context.__aexit__(None, None, None)
 
-# class UserAccount(CommonSocket):
-#     def __init__(self):
-#         super().__init__()
+            if self._task:
+                self._task.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    print("Task was cancelled successfully.")
 
 
 
@@ -111,13 +109,15 @@ class BinanceService:
 
     async def start_user_account_updates_async(self):
         if not self.user_account:
-            self.user_account =UserAccount(self.bsm.user_socket())
+            self.user_account = UserAccount(self.bsm)
         await self.user_account.start_updates_async()
 
         print("STARTED receiving user Account updates")
 
 
-    async def stop_user_account_updates(self):
+    async def stop_user_account_updates_async(self):
+        if self.user_account:
+            await self.user_account.stop_updates_async()
         print("STOPPED receiving user Account updates")
 
 
@@ -163,7 +163,7 @@ class BinanceService:
     @staticmethod
     def _create_socket_manager(client : AsyncClient):
         bsm =None
-        bsm =  BinanceSocketManager(client)
+        bsm =  BinanceSocketManager(client, user_timeout=540)   # user_timeout value is based on seconds  ==   9 * 60 seconds = 540 seconds =  9 minnutes
         return bsm
 
 
@@ -178,6 +178,11 @@ async def test_binance():
     prod_client = await BinanceService.create_async(account_id="Hari", production_environment=True)
     print(f"Above prod client starting")
     await prod_client.start_user_account_updates_async()
+    print("I came back.  Updates will be receiving continuioulsy for 60 seconds....")
+    await asyncio.sleep(20*60)
+    await prod_client.stop_user_account_updates_async()
+    print("Going to stop the client")
+
     print(f"Below prod client starting")
     await prod_client.close()
 
