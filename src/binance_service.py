@@ -6,8 +6,8 @@ from aiohttp import ClientConnectorDNSError
 from binance import AsyncClient, BinanceSocketManager
 
 
-api_bin_key ="Rfm2PZaBAgavqhZWJA2N8xOEUprsMcLg3rgE9jFyhy4FV4bZMTwDYlTsqWXrz387"
-api_bin_secret = "xoyngETgiBGTmvQR5YOL9pVcbcXCiyJCaTfL8j85wDYdAo49CvVvEmRsvqDLw07y"
+api_bin_key ="Rfm2PMTwDYlTsqWXrz387"
+api_bin_secret = "xoyngETgiAo49CvVvEmRsvqDLw07y"
 
 class HariBinanceSocketManager:
     _instances = {}
